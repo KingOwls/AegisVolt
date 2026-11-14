@@ -1,0 +1,26 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AegisVolt | Operations</title><style>
+:root{font-family:system-ui,Segoe UI,sans-serif;color:#eaf2ff;background:#0b1323}*{box-sizing:border-box}body{margin:0}header{padding:26px 5%;background:#15243d;border-bottom:1px solid #30415f}h1{margin:0;color:#73ead1}header p{margin:5px 0;color:#aec1d9}main{max-width:1200px;margin:30px auto;padding:0 20px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}.panel{background:#17263e;border:1px solid #344762;border-radius:14px;padding:20px;margin-bottom:18px}.panel h2{margin-top:0;font-size:18px}button,select,input{border-radius:7px;padding:10px;border:1px solid #59708d;background:#243955;color:white}button{background:#138873;border:0;cursor:pointer;font-weight:bold}button:hover{background:#1aad91}.item{padding:9px;margin:6px 0;background:#223450;border-radius:7px}small,.muted{color:#abc0d8}.ok{color:#8febc2}.bad{color:#ffb0ad}code{word-break:break-all}#message{min-height:30px} .event{font-size:12px;color:#c2d3e7}
+</style></head><body><header><h1>⚡ AegisVolt</h1><p>Cloud-native EV Charging Command Center · <span id="environment">…</span></p></header><main><div class="panel"><label>GraphQL API <input id="api" size="45"/></label> <button onclick="connect()">Conectar</button><p class="muted">Configure el puerto del ambiente. Desarrollo: 8000 · Test: 8001 · Producción local: 8002.</p></div>
+<div class="grid"><section class="panel"><h2>🔌 Conectores</h2><div id="connectors"></div></section><section class="panel"><h2>💳 Billeteras</h2><div id="wallets"></div></section><section class="panel"><h2>🚩 Feature flags</h2><div id="flags"></div></section></div>
+<section class="panel"><h2>Iniciar carga / Saga</h2><select id="connector"></select> <input id="fleet" value="FLEET-DEMO"/> <button onclick="runSaga()">Reservar y activar</button><p id="message"></p></section>
+<div class="grid"><section class="panel"><h2>📜 Historial y compensaciones</h2><div id="transactions"></div></section><section class="panel"><h2>📈 Telemetría</h2><div id="telemetry"></div></section></div></main>
+<script>
+const $=id=>document.getElementById(id);
+const defaultPort=location.port==='8081'?'8001':location.port==='8082'?'8002':'8000';
+$('api').value=`http://${location.hostname||'localhost'}:${defaultPort}/graphql`;
+async function gql(query){let r=await fetch($('api').value,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})});let j=await r.json();if(j.errors)throw Error(j.errors.map(e=>e.message).join('; '));return j.data}
+const esc=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+async function connect(){try{let x=await gql('{ environment connectors { id status sagaId } wallets { fleetId balance } flags { key enabled } transactions { id status events error amount } telemetry { id connectorId status powerKw energyKwh } }');
+$('environment').textContent=x.environment.toUpperCase();$('connectors').innerHTML=x.connectors.map(c=>`<div class="item">${esc(c.id)} · <b class="${c.status==='AVAILABLE'?'ok':'bad'}">${esc(c.status)}</b></div>`).join('');
+$('wallets').innerHTML=x.wallets.map(w=>`<div class="item">${esc(w.fleetId)} · $${w.balance}</div>`).join('');
+$('flags').innerHTML=x.flags.map(f=>`<div class="item"><label><input type="checkbox" ${f.enabled?'checked':''} onchange="setFlag('${esc(f.key)}',this.checked)"/> ${esc(f.key)}</label></div>`).join('');
+$('connector').innerHTML=x.connectors.map(c=>`<option ${c.status!=='AVAILABLE'?'disabled':''} value="${esc(c.id)}">${esc(c.id)} (${esc(c.status)})</option>`).join('');
+$('transactions').innerHTML=x.transactions.slice().reverse().map(t=>`<div class="item"><b>${esc(t.status)}</b> · ${esc(t.id)}<div class="event">${t.events.map(esc).join(' → ')} ${esc(t.error||'')}</div></div>`).join('')||'No hay transacciones';
+$('telemetry').innerHTML=x.telemetry.map(t=>`<div class="item">${esc(t.connectorId)} · ${esc(t.status)} · ${t.powerKw} kW</div>`).join('')||'Sin sesiones';
+$('message').textContent='Última actualización: '+new Date().toLocaleTimeString();
+}catch(e){$('message').textContent='Error: '+e.message}}
+async function setFlag(key,enabled){try{await gql(`mutation {setFlag(key:"${key}", enabled:${enabled}){key enabled}}`);await connect()}catch(e){alert(e.message);await connect()}}
+async function runSaga(){let connector=$('connector').value, fleet=$('fleet').value;if(!/^[a-zA-Z0-9_-]+$/.test(connector+fleet)){alert('Identificadores inválidos');return}try{let data=await gql(`mutation {reserveAndActivate(connectorId:"${connector}",fleetId:"${fleet}"){id status events error}}`);$('message').textContent=`SAGA ${data.reserveAndActivate.id}: ${data.reserveAndActivate.status}`;await connect()}catch(e){$('message').textContent=e.message}}
+connect();setInterval(connect,5000);
+</script></body></html>

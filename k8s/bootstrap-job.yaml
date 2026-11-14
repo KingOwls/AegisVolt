@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: aegisvolt-bootstrap
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: aegisvolt:local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "scripts.bootstrap"]
+          envFrom:
+            - configMapRef: {name: aegisvolt-config}

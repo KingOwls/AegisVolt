@@ -1,0 +1,66 @@
+name: AegisVolt CI
+on:
+  pull_request:
+    branches: [dev, test, prod]
+  push:
+    branches: [dev, test, prod]
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements-dev.txt
+      - run: python -m compileall -q app scripts observability
+      - run: python -m pytest -q tests/test_gateway_import.py
+      - run: ruff check --select E9 app scripts observability
+      - run: docker build -t aegisvolt:ci .
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests/test_unit.py
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/launch.sh test
+      - run: |
+          for n in $(seq 1 60); do curl -fsS localhost:8001/health && break || sleep 2; done
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements-dev.txt
+      - run: AEGIS_INTEGRATION=1 AEGIS_API=http://localhost:8001/graphql pytest -q tests/test_integration.py
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/launch.sh test
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements-dev.txt
+      - run: |
+          for n in $(seq 1 60); do curl -fsS localhost:8001/health && break || sleep 2; done
+          AEGIS_E2E=1 AEGIS_API=http://localhost:8001/graphql pytest -q tests/test_e2e.py
+  terraform-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=infra/terraform fmt -check -recursive
+      - run: terraform -chdir=infra/terraform init -backend=false
+      - run: terraform -chdir=infra/terraform validate
+      - name: Workspace plan against Floci
+        env:
+          TARGET_ENV: ${{ github.base_ref || github.ref_name }}
+        run: |
+          docker run -d --name floci -p 4566:4566 floci/floci:latest
+          sleep 5
+          cd infra/terraform
+          terraform workspace select "$TARGET_ENV" || terraform workspace new "$TARGET_ENV"
+          AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test terraform plan -var='endpoint=http://localhost:4566' -var='enable_network=false' -no-color > /tmp/plan.txt
+          tail -n 40 /tmp/plan.txt

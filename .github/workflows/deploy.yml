@@ -1,0 +1,27 @@
+name: AegisVolt deploy (self-hosted only)
+on:
+  push:
+    branches: [dev, test, prod]
+  workflow_dispatch:
+jobs:
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: [self-hosted, linux, aegisvolt]
+    environment: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select target environment
+        run: |
+          case "$GITHUB_REF_NAME" in dev|test|prod) echo "TARGET_ENV=$GITHUB_REF_NAME" >> "$GITHUB_ENV";; *) exit 1;; esac
+      - name: Terraform apply with remote S3 backend
+        run: |
+          cd infra/terraform
+          terraform init -reconfigure -backend-config="$HOME/.config/aegisvolt/backend.hcl"
+          terraform workspace select "$TARGET_ENV"
+          terraform apply -auto-approve -var="local_emulation=true" -var="endpoint=$AEGIS_FLOCI_ENDPOINT" -var="enable_network=false"
+      - name: Deploy k8s stable
+        run: kubectl apply -k "k8s/overlays/$TARGET_ENV"
+      - name: Wait for readiness
+        run: kubectl -n "aegisvolt-$TARGET_ENV" rollout status deployment/gateway --timeout=180s
+# Runner owner must provision Floci + Kubernetes + backend.hcl + AEGIS_FLOCI_ENDPOINT.
+# Never enable this on public/shared runners with unattended production credentials.

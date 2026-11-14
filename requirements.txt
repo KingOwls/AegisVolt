@@ -1,0 +1,9 @@
+fastapi==0.115.12
+uvicorn==0.34.2
+boto3==1.38.36
+httpx==0.28.1
+strawberry-graphql[fastapi]==0.266.0
+# Strawberry 0.266 usa ExecutionContext, eliminado en graphql-core 3.3.
+graphql-core==3.2.13
+pydantic==2.11.5
+prefect==3.4.4

@@ -1,0 +1,61 @@
+name: aegisvolt-${APP_ENV:-dev}
+x-app: &common
+  build: .
+  environment: &env
+    APP_ENV: ${APP_ENV:-dev}
+    AWS_ENDPOINT_URL: http://floci:4566
+    AWS_DEFAULT_REGION: us-east-1
+    AWS_ACCESS_KEY_ID: test
+    AWS_SECRET_ACCESS_KEY: test
+    CLOUDWATCH_ENABLED: 'true'
+  depends_on:
+    init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+services:
+  floci:
+    image: floci/floci:latest
+    ports:
+      - '127.0.0.1:${AWS_PORT:-4566}:4566'
+    volumes:
+      - floci-data:/data
+    environment:
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_DATA_DIR: /data
+    restart: unless-stopped
+  init:
+    build: .
+    command: python -m scripts.bootstrap
+    environment: *env
+    depends_on:
+      - floci
+    restart: on-failure
+  station:
+    <<: *common
+    command: uvicorn app.station:app --host 0.0.0.0 --port 8000
+  billing:
+    <<: *common
+    command: uvicorn app.billing:app --host 0.0.0.0 --port 8000
+  energy:
+    <<: *common
+    command: uvicorn app.energy:app --host 0.0.0.0 --port 8000
+  gateway:
+    <<: *common
+    command: uvicorn app.gateway:app --host 0.0.0.0 --port 8000
+    environment:
+      <<: *env
+      STATION_URL: http://station:8000
+      BILLING_URL: http://billing:8000
+      ENERGY_URL: http://energy:8000
+    ports:
+      - '127.0.0.1:${API_PORT:-8000}:8000'
+  frontend:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:80'
+    depends_on:
+      - gateway
+volumes:
+  floci-data:
