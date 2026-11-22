@@ -1,9 +1,9 @@
 name: AegisVolt CI
 on:
   pull_request:
-    branches: [dev, test, prod]
+    branches: [main, dev, test, prod]
   push:
-    branches: [dev, test, prod]
+    branches: [main, dev, test, prod]
 jobs:
   lint-build:
     runs-on: ubuntu-latest
@@ -23,14 +23,25 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q tests/test_unit.py
+      - run: python -m pytest -q tests/test_unit.py tests/test_gateway_import.py tests/test_reserved_words.py
   integration-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/launch.sh test
       - run: |
-          for n in $(seq 1 60); do curl -fsS localhost:8001/health && break || sleep 2; done
+          ready=0
+          for n in $(seq 1 60); do
+            if curl -fsS --max-time 3 http://localhost:8001/health; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "ERROR: Gateway TEST no disponible" >&2
+            exit 1
+          fi
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install -r requirements-dev.txt
@@ -44,9 +55,21 @@ jobs:
         with: {python-version: '3.12'}
       - run: pip install -r requirements-dev.txt
       - run: |
-          for n in $(seq 1 60); do curl -fsS localhost:8001/health && break || sleep 2; done
+          ready=0
+          for n in $(seq 1 60); do
+            if curl -fsS --max-time 3 http://localhost:8001/health; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "ERROR: Gateway TEST no disponible" >&2
+            exit 1
+          fi
           AEGIS_E2E=1 AEGIS_API=http://localhost:8001/graphql pytest -q tests/test_e2e.py
   terraform-plan:
+    if: ${{ vars.AEGIS_ENABLE_TERRAFORM_CI == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

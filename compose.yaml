@@ -18,10 +18,11 @@ services:
     ports:
       - '127.0.0.1:${AWS_PORT:-4566}:4566'
     volumes:
-      - floci-data:/data
+      - floci-data:/app/data
     environment:
       FLOCI_STORAGE_MODE: persistent
-      FLOCI_DATA_DIR: /data
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      FLOCI_DATA_DIR: /app/data
     restart: unless-stopped
   init:
     build: .
